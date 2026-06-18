@@ -1,0 +1,159 @@
+import Peer from 'peerjs'
+import Network from '../services/Network'
+import store from '../stores'
+import { setVideoConnected } from '../stores/UserStore'
+import { setMyStream, addPeerStream, removePeerStream } from '../stores/VideoStore'
+
+export default class WebRTC {
+  private myPeer: Peer
+  private peers = new Map<string, Peer.MediaConnection>()
+  private onCalledPeers = new Map<string, Peer.MediaConnection>()
+  // Dedicated audio elements for remote streams so audio plays even when
+  // the video element is unmounted or off-screen
+  private audioElements = new Map<string, HTMLAudioElement>()
+  myStream?: MediaStream
+  private network: Network
+
+  constructor(userId: string, network: Network) {
+    const sanitizedId = this.replaceInvalidId(userId)
+    this.myPeer = new Peer(sanitizedId)
+    this.network = network
+    console.log('userId:', userId, '→ sanitizedId:', sanitizedId)
+    this.myPeer.on('error', (err) => {
+      console.error('PeerJS error:', err.type, err)
+    })
+    this.initialize()
+  }
+
+  // PeerJS throws invalid_id if the id contains characters colyseus generates
+  private replaceInvalidId(userId: string) {
+    return userId.replace(/[^0-9a-z]/gi, 'G')
+  }
+
+  initialize() {
+    // Answer incoming calls
+    this.myPeer.on('call', (call) => {
+      if (this.onCalledPeers.has(call.peer)) return // already connected
+      call.answer(this.myStream)
+      this.onCalledPeers.set(call.peer, call)
+
+      call.on('stream', (remoteStream) => {
+        this.addRemoteStream(call.peer, remoteStream)
+      })
+      call.on('close', () => {
+        this.cleanupPeer(call.peer, false)
+      })
+      call.on('error', (err) => {
+        console.error('incoming call error:', err)
+        this.cleanupPeer(call.peer, false)
+      })
+    })
+  }
+
+  // ── permissions ────────────────────────────────────────────────────────────
+
+  checkPreviousPermission() {
+    const permissionName = 'microphone' as PermissionName
+    navigator.permissions?.query({ name: permissionName }).then((result) => {
+      if (result.state === 'granted') this.getUserMedia(false)
+    })
+  }
+
+  getUserMedia(alertOnError = true) {
+    navigator.mediaDevices
+      ?.getUserMedia({ video: true, audio: true })
+      .then((stream) => {
+        this.myStream = stream
+        store.dispatch(setMyStream(stream))
+        store.dispatch(setVideoConnected(true))
+        this.network.videoConnected()
+      })
+      .catch(() => {
+        if (alertOnError)
+          window.alert('No webcam or microphone found, or permission is blocked')
+      })
+  }
+
+  // ── outgoing call ──────────────────────────────────────────────────────────
+
+  connectToNewUser(userId: string) {
+    if (!this.myStream) return
+    const sanitizedId = this.replaceInvalidId(userId)
+    if (this.peers.has(sanitizedId)) return // already calling
+    console.log('Calling peer:', sanitizedId)
+    const call = this.myPeer.call(sanitizedId, this.myStream)
+    this.peers.set(sanitizedId, call)
+
+    call.on('stream', (remoteStream) => {
+      this.addRemoteStream(sanitizedId, remoteStream)
+    })
+    call.on('close', () => {
+      this.cleanupPeer(sanitizedId, true)
+    })
+    call.on('error', (err) => {
+      console.error('outgoing call error:', err)
+      this.cleanupPeer(sanitizedId, true)
+    })
+  }
+
+  // ── stream management ──────────────────────────────────────────────────────
+
+  private addRemoteStream(peerId: string, stream: MediaStream) {
+    // Dispatch to Redux so React renders the video tile
+    store.dispatch(
+      addPeerStream({
+        peerId,
+        stream,
+        label: peerId.slice(0, 6),
+      })
+    )
+
+    // Dedicated <audio> element guarantees audio even when the video tile is
+    // off-screen.  We always create one; the React <video> element will handle
+    // the visual.
+    if (!this.audioElements.has(peerId)) {
+      const audio = document.createElement('audio')
+      audio.srcObject = stream
+      audio.autoplay = true
+      audio.playsInline = true
+      // Don't set audio.muted — we want the remote user's audio!
+      document.body.appendChild(audio)
+      this.audioElements.set(peerId, audio)
+    }
+  }
+
+  private cleanupPeer(peerId: string, isOutgoing: boolean) {
+    store.dispatch(removePeerStream(peerId))
+    const audio = this.audioElements.get(peerId)
+    if (audio) {
+      audio.srcObject = null
+      audio.remove()
+      this.audioElements.delete(peerId)
+    }
+    if (isOutgoing) this.peers.delete(peerId)
+    else this.onCalledPeers.delete(peerId)
+  }
+
+  // ── public cleanup ─────────────────────────────────────────────────────────
+
+  deleteVideoStream(userId: string) {
+    const sanitizedId = this.replaceInvalidId(userId)
+    const call = this.peers.get(sanitizedId)
+    if (call) {
+      call.close()
+      this.cleanupPeer(sanitizedId, true)
+    }
+  }
+
+  deleteOnCalledVideoStream(userId: string) {
+    const sanitizedId = this.replaceInvalidId(userId)
+    const call = this.onCalledPeers.get(sanitizedId)
+    if (call) {
+      call.close()
+      this.cleanupPeer(sanitizedId, false)
+    }
+  }
+
+  // Legacy — kept for backward-compat; React UI handles controls now
+  setUpButtons() {}
+}
