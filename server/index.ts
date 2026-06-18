@@ -53,3 +53,8 @@ app.use('/colyseus', monitor())
 gameServer.listen(port)
 console.log(`Listening on ws://localhost:${port}`)
 
+app.get('/', (_, res) => {
+  res.json({
+    status: 'MetaMesh Backend Running'
+  })
+})
