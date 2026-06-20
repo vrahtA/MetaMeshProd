@@ -124,6 +124,4 @@ To compile the TypeScript server code:
 npm run heroku-postbuild
 ```
 
-## License
 
-This project is licensed under the MIT License.
