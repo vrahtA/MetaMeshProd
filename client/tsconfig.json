@@ -17,6 +17,8 @@
     "jsx": "react-jsx",
     "noImplicitAny": false,
     "strictNullChecks": true,
+    "skipLibCheck": true,
+    "noEmitOnError": false,
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }],
