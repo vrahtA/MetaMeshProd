@@ -16,13 +16,44 @@ export default class WebRTC {
 
   constructor(userId: string, network: Network) {
     const sanitizedId = this.replaceInvalidId(userId)
-    this.myPeer = new Peer(sanitizedId)
+    this.myPeer = new Peer(sanitizedId, this.buildPeerConfig())
     this.network = network
     console.log('userId:', userId, '→ sanitizedId:', sanitizedId)
     this.myPeer.on('error', (err) => {
       console.error('PeerJS error:', err.type, err)
     })
     this.initialize()
+  }
+
+  /**
+   * Build PeerJS config pointing to our self-hosted /peerjs server.
+   * In production, derive host/port from VITE_SERVER_URL.
+   * In development, fall back to localhost:2567.
+   */
+  private buildPeerConfig(): Peer.PeerJSOption {
+    const serverUrl = import.meta.env.VITE_SERVER_URL as string | undefined
+
+    if (serverUrl) {
+      try {
+        const url = new URL(serverUrl)
+        return {
+          host: url.hostname,
+          port: url.port ? Number(url.port) : (url.protocol === 'https:' ? 443 : 80),
+          path: '/peerjs',
+          secure: url.protocol === 'https:' || url.protocol === 'wss:',
+        }
+      } catch (e) {
+        console.warn('WebRTC: Could not parse VITE_SERVER_URL, falling back to defaults', e)
+      }
+    }
+
+    // Development fallback
+    return {
+      host: window.location.hostname,
+      port: 2567,
+      path: '/peerjs',
+      secure: false,
+    }
   }
 
   // PeerJS throws invalid_id if the id contains characters colyseus generates

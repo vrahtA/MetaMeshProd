@@ -2,6 +2,7 @@ import http from 'http'
 import express from 'express'
 import cors from 'cors'
 import { Server, LobbyRoom } from 'colyseus'
+import { ExpressPeerServer } from 'peer'
 import { monitor } from '@colyseus/monitor'
 import { RoomType } from '../types/Rooms'
 
@@ -14,7 +15,11 @@ import authRoutes from './routes/auth'
 const port = Number(process.env.PORT || 2567)
 const app = express()
 
-app.use(cors())
+app.use(cors({
+  origin: process.env.CLIENT_URL || '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}))
 app.use(express.json())
 // app.use(express.static('dist'))
 
@@ -28,6 +33,14 @@ const server = http.createServer(app)
 const gameServer = new Server({
   server,
 })
+
+// Self-hosted PeerJS signaling server — mounted on /peerjs
+// This replaces the unreliable free public peerserver.com cloud.
+const peerServer = ExpressPeerServer(server, {
+  path: '/',
+})
+app.use('/peerjs', peerServer)
+console.log(`PeerJS server mounted at /peerjs`)
 
 // register room handlers
 gameServer.define(RoomType.LOBBY, LobbyRoom)

@@ -39,10 +39,24 @@ export default class Network {
 
   constructor() {
     const protocol = window.location.protocol.replace('http', 'ws')
-    const endpoint =
-      process.env.NODE_ENV === 'production'
-        ? import.meta.env.VITE_SERVER_URL
-        : `${protocol}//${window.location.hostname}:2567`
+
+    let endpoint: string
+    if (import.meta.env.VITE_SERVER_URL) {
+      // Explicit server URL configured at build time (recommended for production)
+      endpoint = import.meta.env.VITE_SERVER_URL
+    } else if (import.meta.env.PROD) {
+      // Production fallback: assume server is on same origin (e.g. same Render/Railway app)
+      endpoint = `${protocol}//${window.location.host}`
+      console.warn(
+        '[MetaMesh] VITE_SERVER_URL is not set. Falling back to same-origin:',
+        endpoint,
+        '— set VITE_SERVER_URL in your build environment if the server is on a different domain.'
+      )
+    } else {
+      // Development: connect to local Colyseus server
+      endpoint = `${protocol}//${window.location.hostname}:2567`
+    }
+
     this.client = new Client(endpoint)
     this.joinLobbyRoom().then(() => {
       store.dispatch(setLobbyJoined(true))
