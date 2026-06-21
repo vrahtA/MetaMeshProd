@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = 'http://localhost:2567'
+const API_BASE_URL = import.meta.env.VITE_API_URL
 const TOKEN_KEY = 'metamesh_auth_token'
 
 export interface RegisterData {
