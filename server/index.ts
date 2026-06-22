@@ -2,7 +2,7 @@ import http from 'http'
 import express from 'express'
 import cors from 'cors'
 import { Server, LobbyRoom } from 'colyseus'
-import { ExpressPeerServer } from 'peer'
+//import { ExpressPeerServer } from 'peer'
 import { monitor } from '@colyseus/monitor'
 import { RoomType } from '../types/Rooms'
 
@@ -36,10 +36,10 @@ const gameServer = new Server({
 
 // Self-hosted PeerJS signaling server — mounted on /peerjs
 // This replaces the unreliable free public peerserver.com cloud.
-const peerServer = ExpressPeerServer(server, {
-  path: '/',
-})
-app.use('/peerjs', peerServer)
+//const peerServer = ExpressPeerServer(server, {
+//  path: '/',
+//})
+//app.use('/peerjs', peerServer)
 console.log(`PeerJS server mounted at /peerjs`)
 
 // register room handlers
