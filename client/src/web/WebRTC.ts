@@ -35,12 +35,15 @@ export default class WebRTC {
   private buildPeerConfig(): Peer.PeerJSOption {
     const serverUrl = import.meta.env.VITE_SERVER_URL as string | undefined
 
-    // Public STUN servers so ICE works behind NAT/firewalls.
-    // Add a TURN server entry here if clients are on strict symmetric NAT.
+    // Public STUN servers for basic NAT discovery.
+    // TURN servers relay media when direct P2P fails (symmetric NAT, strict firewall).
     const iceServers = [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
+      // Free open-relay TURN servers — replace with your own for high-traffic production
+      { urls: 'turn:openrelay.metered.ca:80',        username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443',       username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
     ]
 
     if (serverUrl) {
@@ -144,7 +147,12 @@ export default class WebRTC {
   connectToNewUser(userId: string): boolean {
     if (!this.myStream) return false
     const sanitizedId = this.replaceInvalidId(userId)
-    if (this.peers.has(sanitizedId)) return false // already calling
+    if (this.peers.has(sanitizedId)) return false // we already placed a call to this peer
+    if (this.onCalledPeers.has(sanitizedId)) {
+      // The remote peer already called us — we're already receiving their stream.
+      // Signal 'connected' without placing a redundant outgoing call.
+      return true
+    }
     console.log('Calling peer:', sanitizedId)
     try {
       const call = this.myPeer.call(sanitizedId, this.myStream)

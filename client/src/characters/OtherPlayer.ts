@@ -31,13 +31,11 @@ export default class OtherPlayer extends Player {
 
   makeCall(myPlayer: MyPlayer, webRTC: WebRTC) {
     this.myPlayer = myPlayer
-    const myPlayerId = myPlayer.playerId
     if (
       !this.connected &&
       this.connectionBufferTime >= 750 &&
       myPlayer.readyToConnect &&
-      this.readyToConnect &&
-      myPlayerId > this.playerId
+      this.readyToConnect
     ) {
       const called = webRTC.connectToNewUser(this.playerId)
       if (called) {
