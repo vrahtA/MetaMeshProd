@@ -8,6 +8,8 @@ export default class WebRTC {
   private myPeer: Peer
   private peers = new Map<string, Peer.MediaConnection>()
   private onCalledPeers = new Map<string, Peer.MediaConnection>()
+  // Incoming calls received before getUserMedia resolved — answered once stream is ready
+  private pendingCalls = new Map<string, Peer.MediaConnection>()
   // Dedicated audio elements for remote streams so audio plays even when
   // the video element is unmounted or off-screen
   private audioElements = new Map<string, HTMLAudioElement>()
@@ -65,19 +67,32 @@ export default class WebRTC {
     // Answer incoming calls
     this.myPeer.on('call', (call) => {
       if (this.onCalledPeers.has(call.peer)) return // already connected
-      call.answer(this.myStream)
-      this.onCalledPeers.set(call.peer, call)
 
-      call.on('stream', (remoteStream) => {
-        this.addRemoteStream(call.peer, remoteStream)
-      })
-      call.on('close', () => {
-        this.cleanupPeer(call.peer, false)
-      })
-      call.on('error', (err) => {
-        console.error('incoming call error:', err)
-        this.cleanupPeer(call.peer, false)
-      })
+      if (this.myStream) {
+        // Stream is ready — answer immediately
+        this.answerCall(call)
+      } else {
+        // Stream not yet acquired — buffer the call; we'll answer once getUserMedia resolves
+        console.log('Buffering incoming call from', call.peer, '(stream not ready yet)')
+        this.pendingCalls.set(call.peer, call)
+      }
+    })
+  }
+
+  /** Wire up and answer a single incoming call with our stream. */
+  private answerCall(call: Peer.MediaConnection) {
+    call.answer(this.myStream)
+    this.onCalledPeers.set(call.peer, call)
+
+    call.on('stream', (remoteStream) => {
+      this.addRemoteStream(call.peer, remoteStream)
+    })
+    call.on('close', () => {
+      this.cleanupPeer(call.peer, false)
+    })
+    call.on('error', (err) => {
+      console.error('incoming call error:', err)
+      this.cleanupPeer(call.peer, false)
     })
   }
 
@@ -98,6 +113,15 @@ export default class WebRTC {
         store.dispatch(setMyStream(stream))
         store.dispatch(setVideoConnected(true))
         this.network.videoConnected()
+
+        // Flush any calls that arrived before we had a stream
+        this.pendingCalls.forEach((call) => {
+          if (!this.onCalledPeers.has(call.peer)) {
+            console.log('Answering buffered call from', call.peer)
+            this.answerCall(call)
+          }
+        })
+        this.pendingCalls.clear()
       })
       .catch(() => {
         if (alertOnError)
@@ -107,10 +131,10 @@ export default class WebRTC {
 
   // ── outgoing call ──────────────────────────────────────────────────────────
 
-  connectToNewUser(userId: string) {
-    if (!this.myStream) return
+  connectToNewUser(userId: string): boolean {
+    if (!this.myStream) return false
     const sanitizedId = this.replaceInvalidId(userId)
-    if (this.peers.has(sanitizedId)) return // already calling
+    if (this.peers.has(sanitizedId)) return false // already calling
     console.log('Calling peer:', sanitizedId)
     const call = this.myPeer.call(sanitizedId, this.myStream)
     this.peers.set(sanitizedId, call)
@@ -125,6 +149,7 @@ export default class WebRTC {
       console.error('outgoing call error:', err)
       this.cleanupPeer(sanitizedId, true)
     })
+    return true
   }
 
   // ── stream management ──────────────────────────────────────────────────────

@@ -21,6 +21,9 @@ const config: Phaser.Types.Core.GameConfig = {
     },
   },
   autoFocus: true,
+  // Prevent the game loop from freezing when the browser permission dialog
+  // (camera / microphone) steals focus — otherwise other players see you frozen.
+  pauseOnBlur: false,
   scene: [Bootstrap, Background, Game],
 }
 
