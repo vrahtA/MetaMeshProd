@@ -35,6 +35,14 @@ export default class WebRTC {
   private buildPeerConfig(): Peer.PeerJSOption {
     const serverUrl = import.meta.env.VITE_SERVER_URL as string | undefined
 
+    // Public STUN servers so ICE works behind NAT/firewalls.
+    // Add a TURN server entry here if clients are on strict symmetric NAT.
+    const iceServers = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+    ]
+
     if (serverUrl) {
       try {
         const url = new URL(serverUrl)
@@ -43,6 +51,7 @@ export default class WebRTC {
           port: url.port ? Number(url.port) : (url.protocol === 'https:' ? 443 : 80),
           path: '/peerjs',
           secure: url.protocol === 'https:' || url.protocol === 'wss:',
+          config: { iceServers },
         }
       } catch (e) {
         console.warn('WebRTC: Could not parse VITE_SERVER_URL, falling back to defaults', e)
@@ -55,6 +64,7 @@ export default class WebRTC {
       port: 2567,
       path: '/peerjs',
       secure: false,
+      config: { iceServers },
     }
   }
 
@@ -136,20 +146,26 @@ export default class WebRTC {
     const sanitizedId = this.replaceInvalidId(userId)
     if (this.peers.has(sanitizedId)) return false // already calling
     console.log('Calling peer:', sanitizedId)
-    const call = this.myPeer.call(sanitizedId, this.myStream)
-    this.peers.set(sanitizedId, call)
+    try {
+      const call = this.myPeer.call(sanitizedId, this.myStream)
+      if (!call) return false // peer not yet ready
+      this.peers.set(sanitizedId, call)
 
-    call.on('stream', (remoteStream) => {
-      this.addRemoteStream(sanitizedId, remoteStream)
-    })
-    call.on('close', () => {
-      this.cleanupPeer(sanitizedId, true)
-    })
-    call.on('error', (err) => {
-      console.error('outgoing call error:', err)
-      this.cleanupPeer(sanitizedId, true)
-    })
-    return true
+      call.on('stream', (remoteStream) => {
+        this.addRemoteStream(sanitizedId, remoteStream)
+      })
+      call.on('close', () => {
+        this.cleanupPeer(sanitizedId, true)
+      })
+      call.on('error', (err) => {
+        console.error('outgoing call error:', err)
+        this.cleanupPeer(sanitizedId, true)
+      })
+      return true
+    } catch (err) {
+      console.error('connectToNewUser failed:', err)
+      return false
+    }
   }
 
   // ── stream management ──────────────────────────────────────────────────────
@@ -194,6 +210,8 @@ export default class WebRTC {
 
   deleteVideoStream(userId: string) {
     const sanitizedId = this.replaceInvalidId(userId)
+    // Also remove from pendingCalls so we don't answer a dead call later
+    this.pendingCalls.delete(sanitizedId)
     const call = this.peers.get(sanitizedId)
     if (call) {
       call.close()
@@ -203,6 +221,8 @@ export default class WebRTC {
 
   deleteOnCalledVideoStream(userId: string) {
     const sanitizedId = this.replaceInvalidId(userId)
+    // Also remove from pendingCalls
+    this.pendingCalls.delete(sanitizedId)
     const call = this.onCalledPeers.get(sanitizedId)
     if (call) {
       call.close()

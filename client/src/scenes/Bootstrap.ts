@@ -93,7 +93,13 @@ export default class Bootstrap extends Phaser.Scene {
 
   launchGame() {
     if (!this.preloadComplete) return
-    this.network.webRTC?.checkPreviousPermission()
+    // Defer the auto-camera check by 1 s so the Phaser game loop is fully
+    // running before hardware is activated. Without this, getUserMedia fires
+    // synchronously during scene creation and can stall the game loop,
+    // making players appear frozen the moment someone approaches.
+    setTimeout(() => {
+      this.network.webRTC?.checkPreviousPermission()
+    }, 1000)
     this.scene.launch('game', {
       network: this.network,
     })
