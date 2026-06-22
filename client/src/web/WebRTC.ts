@@ -13,6 +13,9 @@ export default class WebRTC {
   // Dedicated audio elements for remote streams so audio plays even when
   // the video element is unmounted or off-screen
   private audioElements = new Map<string, HTMLAudioElement>()
+  // True once the PeerJS signaling WebSocket is open (and false while reconnecting).
+  // Checked before every outgoing call to prevent the 60fps error flood.
+  private peerReady = false
   myStream?: MediaStream
   private network: Network
 
@@ -21,9 +24,35 @@ export default class WebRTC {
     this.myPeer = new Peer(sanitizedId, this.buildPeerConfig())
     this.network = network
     console.log('userId:', userId, '→ sanitizedId:', sanitizedId)
+
+    // Mark ready when the signaling WebSocket opens (or reopens after reconnect)
+    this.myPeer.on('open', () => {
+      this.peerReady = true
+      console.log('PeerJS signaling connected')
+    })
+
+    // Auto-reconnect when the signaling WebSocket drops.
+    // This is common on free hosting (Render, Railway) where the server
+    // idles / restarts. Without this, every proximity call throws
+    // "Cannot connect to new Peer after disconnecting from server" at 60 fps.
+    this.myPeer.on('disconnected', () => {
+      this.peerReady = false
+      console.warn('PeerJS signaling disconnected — reconnecting in 1 s...')
+      setTimeout(() => {
+        if (!this.myPeer.destroyed) {
+          this.myPeer.reconnect()
+        }
+      }, 1000)
+    })
+
     this.myPeer.on('error', (err) => {
       console.error('PeerJS error:', err.type, err)
+      // 'disconnected' errors fire before the 'disconnected' event; mark not-ready.
+      if (err.type === 'disconnected' || err.type === 'server-error') {
+        this.peerReady = false
+      }
     })
+
     this.initialize()
   }
 
@@ -146,6 +175,9 @@ export default class WebRTC {
 
   connectToNewUser(userId: string): boolean {
     if (!this.myStream) return false
+    // Skip entirely if the signaling WebSocket is down — prevents the 60fps
+    // "Cannot connect to new Peer after disconnecting" error flood.
+    if (!this.peerReady || this.myPeer.destroyed) return false
     const sanitizedId = this.replaceInvalidId(userId)
     if (this.peers.has(sanitizedId)) return false // we already placed a call to this peer
     if (this.onCalledPeers.has(sanitizedId)) {
