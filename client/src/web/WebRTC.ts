@@ -57,15 +57,15 @@ export default class WebRTC {
   }
 
   /**
-   * Build PeerJS config pointing to our self-hosted /peerjs server.
-   * In production, derive host/port from VITE_SERVER_URL.
-   * In development, fall back to localhost:2567.
+   * Build PeerJS config.
+   * Signaling: PeerJS public cloud (0.peerjs.com) — no host/port/path needed.
+   * Media relay: STUN + TURN for NAT traversal (independent of signaling).
+   *
+   * Why not self-hosted? Running ExpressPeerServer on the same http.Server as
+   * Colyseus causes ws@2.x to destroy non-matching WebSocket upgrade requests
+   * before Colyseus can handle them, breaking all game connections.
    */
   private buildPeerConfig(): Peer.PeerJSOption {
-    const serverUrl = import.meta.env.VITE_SERVER_URL as string | undefined
-
-    // Public STUN servers for basic NAT discovery.
-    // TURN servers relay media when direct P2P fails (symmetric NAT, strict firewall).
     const iceServers = [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
@@ -74,38 +74,8 @@ export default class WebRTC {
       { urls: 'turn:openrelay.metered.ca:443',       username: 'openrelayproject', credential: 'openrelayproject' },
       { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
     ]
-
-    if (serverUrl) {
-      try {
-        const url = new URL(serverUrl)
-        // Both 'https:' and 'wss:' are secure protocols → port 443.
-        // Previously only 'https:' was checked, so 'wss:' URLs incorrectly
-        // got port 80, causing 'wss://host:80/...' connections to fail.
-        const isSecure = url.protocol === 'https:' || url.protocol === 'wss:'
-        const port = url.port ? Number(url.port) : (isSecure ? 443 : 80)
-        return {
-          host: url.hostname,
-          port,
-          // path:'/' → PeerJS appends key 'peerjs' → WS URL is /peerjs.
-          // The server's ExpressPeerServer(server,{path:'/'}) also listens at /peerjs.
-          // Old path:'/peerjs' caused the URL to be /peerjs/peerjs (double path) — server never handled it.
-          path: '/',
-          secure: isSecure,
-          config: { iceServers },
-        }
-      } catch (e) {
-        console.warn('WebRTC: Could not parse VITE_SERVER_URL, falling back to defaults', e)
-      }
-    }
-
-    // Development fallback (Colyseus + PeerJS both on port 2567)
-    return {
-      host: window.location.hostname,
-      port: 2567,
-      path: '/',
-      secure: false,
-      config: { iceServers },
-    }
+    // Omitting host/port/path → PeerJS uses its public cloud at 0.peerjs.com:443
+    return { config: { iceServers } }
   }
 
   // PeerJS throws invalid_id if the id contains characters colyseus generates
