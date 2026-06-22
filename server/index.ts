@@ -2,7 +2,7 @@ import http from 'http'
 import express from 'express'
 import cors from 'cors'
 import { Server, LobbyRoom } from 'colyseus'
-//import { ExpressPeerServer } from 'peer'
+import { ExpressPeerServer } from 'peer'
 import { monitor } from '@colyseus/monitor'
 import { RoomType } from '../types/Rooms'
 
@@ -34,13 +34,16 @@ const gameServer = new Server({
   server,
 })
 
-// Self-hosted PeerJS signaling server — mounted on /peerjs
-// This replaces the unreliable free public peerserver.com cloud.
-//const peerServer = ExpressPeerServer(server, {
-//  path: '/',
-//})
-//app.use('/peerjs', peerServer)
-console.log(`PeerJS server mounted at /peerjs`)
+// Self-hosted PeerJS signaling server.
+// The WS path is: {path option} + key ('peerjs') = '/peerjs'
+// Client must use path:'/' so its URL resolves to wss://host/peerjs.
+// proxied:true lets PeerJS trust Railway/Render's X-Forwarded-* headers.
+const peerServer = ExpressPeerServer(server, {
+  path: '/',
+  proxied: true,
+} as any)
+app.use('/peerjs', peerServer)
+console.log('PeerJS signaling server mounted at /peerjs')
 
 // register room handlers
 gameServer.define(RoomType.LOBBY, LobbyRoom)

@@ -78,11 +78,19 @@ export default class WebRTC {
     if (serverUrl) {
       try {
         const url = new URL(serverUrl)
+        // Both 'https:' and 'wss:' are secure protocols → port 443.
+        // Previously only 'https:' was checked, so 'wss:' URLs incorrectly
+        // got port 80, causing 'wss://host:80/...' connections to fail.
+        const isSecure = url.protocol === 'https:' || url.protocol === 'wss:'
+        const port = url.port ? Number(url.port) : (isSecure ? 443 : 80)
         return {
           host: url.hostname,
-          port: url.port ? Number(url.port) : (url.protocol === 'https:' ? 443 : 80),
-          path: '/peerjs',
-          secure: url.protocol === 'https:' || url.protocol === 'wss:',
+          port,
+          // path:'/' → PeerJS appends key 'peerjs' → WS URL is /peerjs.
+          // The server's ExpressPeerServer(server,{path:'/'}) also listens at /peerjs.
+          // Old path:'/peerjs' caused the URL to be /peerjs/peerjs (double path) — server never handled it.
+          path: '/',
+          secure: isSecure,
           config: { iceServers },
         }
       } catch (e) {
@@ -90,11 +98,11 @@ export default class WebRTC {
       }
     }
 
-    // Development fallback
+    // Development fallback (Colyseus + PeerJS both on port 2567)
     return {
       host: window.location.hostname,
       port: 2567,
-      path: '/peerjs',
+      path: '/',
       secure: false,
       config: { iceServers },
     }
